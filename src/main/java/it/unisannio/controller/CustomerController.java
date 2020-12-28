@@ -7,6 +7,7 @@ import javax.annotation.Resource;
 import javax.ejb.EJB;
 import javax.transaction.UserTransaction;
 import javax.ws.rs.*;
+import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import java.net.URI;
 
@@ -39,11 +40,12 @@ public class CustomerController {
 
 	@GET
 	@Path("/{custCF}")
+	@Produces(MediaType.APPLICATION_JSON)
 	public Response getCustomer(@PathParam("custCF") String cf) {
 		try {
 			Customer c = branch.getCustomer(cf);
 			if (c == null) Response.status(404).build();
-			return Response.ok(c).build();
+			return Response.ok(c, MediaType.APPLICATION_JSON).build();
 		} catch (Exception e) {
 			return Response.status(500).build();
 		}
