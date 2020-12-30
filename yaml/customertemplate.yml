@@ -1,0 +1,212 @@
+apiVersion: v1
+kind: Template
+labels:
+  template: customer-template
+message: Your template has been created.
+metadata:
+  name: customer-template
+objects:
+
+#route api
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    labels:
+      app: ${NAME}
+    name: ${NAME}
+    namespace: ${NAMESPACE}
+  spec:
+    port:
+      targetPort: 8080-tcp
+    to:
+      kind: Service
+      name: ${NAME}
+      weight: 100
+    wildcardPolicy: None
+
+#route admin
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    labels:
+      app: ${NAME}
+    name: ${NAME}-admin
+    namespace: ${NAMESPACE}
+  spec:
+    port:
+      targetPort: 9990-tcp
+    to:
+      kind: Service
+      name: ${NAME}
+      weight: 100
+    wildcardPolicy: None
+
+#service
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: ${NAME}
+    name: ${NAME}
+    namespace: ${NAMESPACE}
+  spec:
+    ports:
+      - name: 8080-tcp
+        port: 8080
+        protocol: TCP
+        targetPort: 8080
+      - name: 9990-tcp
+        port: 9990
+        protocol: TCP
+        targetPort: 9990
+    selector:
+      deploymentconfig: ${NAME}
+
+#deployment config
+- apiVersion: apps.openshift.io/v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: ${NAME}
+    name: ${NAME}
+    namespace: ${NAMESPACE}
+  spec:
+    replicas: 1
+    selector:
+      deploymentconfig: ${NAME}
+    strategy:
+      activeDeadlineSeconds: 21600
+      resources: {}
+      rollingParams:
+        intervalSeconds: 1
+        maxSurge: 25%
+        maxUnavailable: 25%
+        timeoutSeconds: 600
+        updatePeriodSeconds: 1
+      type: Rolling
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          app: ${NAME}
+          deploymentconfig: ${NAME}
+      spec:
+        volumes:
+          - name: shared-data
+            emptyDir: {}
+          - name: db-data
+        containers:
+
+          #wildfly container
+          - image: 'wildfly:latest'
+            name: wildfly
+            volumeMounts:
+              - name: shared-data
+                mountPath: /home/test
+            ports:
+              - containerPort: 8080
+                protocol: TCP
+              - containerPort: 9990
+                protocol: TCP
+            resources: {}
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            env:
+              - name: MYSQL_DATABASE
+                value: "customer"
+              - name: MYSQL_HOST
+                value: "localhost:3306"
+              - name: DEPLOYMENT
+                value: "Customer-1.0.war"
+              - name: MULTICONT
+                value: "yes"
+
+          #mysql container
+          - image: 'mysql:latest'
+            name: mysql
+            volumeMounts:
+              - name: shared-data
+                mountPath: /home
+              - name: db-data 
+                mountPath: /var/lib/mysql                
+            resources: {}
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            env:
+              - name: MYSQL_DATABASE
+                value: ${MYSQL_DATABASE}
+              - name: MYSQL_HOST
+                value: ${MYSQL_HOST}
+              - name: DEPLOYMENT
+                value: ${DEPLOYMENT}
+            readinessProbe:
+              exec:
+                command:
+                  - /bin/sh
+                  - '-i'
+                  - '-c'
+                  - >-
+                    mysql -h 127.0.0.1 -u $MYSQL_USER -p$MYSQL_PASSWORD -D $MYSQL_DATABASE -e 'SELECT 1;' > /home/test.txt
+              failureThreshold: 3
+              initialDelaySeconds: 5
+              periodSeconds: 10
+              successThreshold: 1
+              timeoutSeconds: 1
+
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+    test: false
+    triggers:
+      - imageChangeParams:
+          automatic: true
+          containerNames:
+            - wildfly
+          from:
+            kind: ImageStreamTag
+            name: 'wildfly:latest'
+            namespace: ${NAMESPACE}
+        type: ImageChange
+      - imageChangeParams:
+          automatic: true
+          containerNames:
+            - mysql
+          from:
+            kind: ImageStreamTag
+            name: 'mysql:latest'
+            namespace: ${NAMESPACE}
+        type: ImageChange
+      - type: ConfigChange
+
+parameters:
+- description: The name assigned to all of the frontend objects defined in this template.
+  displayName: Name
+  name: NAME
+  value: "customer"
+
+- description: The OpenShift Namespace where the ImageStream resides.
+  displayName: Namespace
+  name: NAMESPACE
+  value: "esercitazione2"
+  
+- description: The name of the database to create.
+  displayName: Database name
+  name: MYSQL_DATABASE
+  value: "customer"
+
+- description: MySql hostname.
+  displayName: Hostname
+  name: MYSQL_HOST
+  value: "localhost:3306"
+
+- description: War to deploy.
+  displayName: Deployment
+  name: DEPLOYMENT
+  value: "Customer-1.0.war"
+
+- description: multicontainer synchronization logic.
+  displayName: multicontainer
+  name: MULTICONT
+  value: "yes"
